@@ -1,0 +1,31 @@
+[build-system]
+requires      = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name             = "xbrl-extraction"
+version          = "0.1.0"
+requires-python  = ">=3.10"
+dependencies     = [
+    "python-dotenv",
+    "lxml",          # XBRL/XML parsing
+]
+
+[project.optional-dependencies]
+dev = ["black", "ruff", "pytest"]
+
+[project.scripts]
+xbrl-extract = "xbrl_extraction.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.black]
+line-length    = 100
+target-version = ["py310"]
+exclude        = "data/|logs/|notebooks/|.venv/"
+
+[tool.ruff]
+line-length    = 100
+target-version = "py310"
+exclude        = ["data", "logs", "notebooks", ".venv"]
