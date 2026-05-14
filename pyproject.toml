@@ -4,13 +4,14 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "xbrl-extraction"
-version         = "1.0.0"
+version         = "2.0.0"
 description     = "Transform iXBRL filing zips into structured JSON."
 readme          = "README.md"
 requires-python = ">=3.10"
 dependencies = [
     "beautifulsoup4>=4.12",
     "lxml>=4.9",
+    "pandas>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -18,7 +19,6 @@ dev = [
     "pytest>=8.0",
     "black>=24.0",
     "ruff>=0.7",
-    "pandas>=2.0",   # for v2 handlers; pulled in early for notebooks
 ]
 
 [project.scripts]

@@ -8,7 +8,7 @@ and the divide unit shape.
 
 import pytest
 
-from xbrl_extraction.parser import parse_ixbrl
+from xbrl_extraction.parsers.ixbrl import parse_ixbrl
 from xbrl_extraction.utils import clean_numeric
 
 # ---------------------------------------------------------------------------

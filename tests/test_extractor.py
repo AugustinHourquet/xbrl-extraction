@@ -25,7 +25,7 @@ def apple_doc():
     path = _find_zip("*1860*.zip")
     if path is None:
         pytest.skip("Apple sample zip not present in tests/fixtures/")
-    return extract(path)
+    return extract(path).document
 
 
 @pytest.fixture(scope="module")
@@ -33,7 +33,7 @@ def andersons_doc():
     path = _find_zip("*13091*.zip")
     if path is None:
         pytest.skip("Andersons sample zip not present in tests/fixtures/")
-    return extract(path)
+    return extract(path).document
 
 
 # ---------------------------------------------------------------------------

@@ -50,9 +50,27 @@ _DEFAULT_OUTPUT_DIR = _PACKAGE_ROOT / "data" / "output"
 _DEFAULT_LOG_DIR = _PACKAGE_ROOT / "logs"
 
 
-def _output_path_for(zip_path: Path, output_dir: Path) -> Path:
-    """data/input/foo.zip → data/output/foo.facts.json"""
-    return output_dir / f"{zip_path.stem}.facts.json"
+def _output_paths_for(zip_path: Path, output_dir: Path) -> dict[str, Path]:
+    """Map output kind → path for one input zip.
+
+    Returns a dict keyed by short kind name ('facts', 'calc', 'pres',
+    'labs', 'defs'). All five paths share the basename derived from the
+    input zip stem.
+
+      data/input/foo.zip → {
+        'facts': data/output/foo.facts.json,
+        'calc':  data/output/foo.calc.json,
+        ...
+      }
+    """
+    stem = zip_path.stem
+    return {
+        "facts": output_dir / f"{stem}.facts.json",
+        "calc": output_dir / f"{stem}.calc.json",
+        "pres": output_dir / f"{stem}.pres.json",
+        "labs": output_dir / f"{stem}.labs.json",
+        "defs": output_dir / f"{stem}.defs.json",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -67,18 +85,18 @@ def _process_one(
     force: bool = False,
 ) -> bool:
     """
-    Extract one zip and write the JSON. Returns True on success OR skip.
+    Extract one zip and write the five JSONs. Returns True on success OR skip.
 
-    If `force` is False (default) and the output file already exists,
-    the zip is skipped without invoking the extractor. The run log is
-    not touched on skip — only actual extractions are logged.
+    Idempotency: skip when ALL five output files already exist. If any
+    are missing, regenerate all five (cheap, ensures consistent state).
+    Pass force=True to re-extract regardless.
 
     All exceptions are caught and turned into a run-log record; the
     caller decides whether to keep going with the next file.
     """
-    output_path = _output_path_for(zip_path, output_dir)
+    paths = _output_paths_for(zip_path, output_dir)
 
-    if output_path.exists() and not force:
+    if not force and all(p.exists() for p in paths.values()):
         logger.info(
             "⊘ %s → already extracted (use --force to re-run)",
             zip_path.name,
@@ -88,7 +106,7 @@ def _process_one(
     started = time.monotonic()
 
     try:
-        doc = extract(zip_path)
+        result = extract(zip_path)
     except FileNotFoundError as exc:
         elapsed = time.monotonic() - started
         logger.error("Not found: %s", zip_path)
@@ -107,15 +125,53 @@ def _process_one(
         return False
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as fh:
-        json.dump(doc.to_dict(), fh, indent=2)
+
+    # Always emit facts.json
+    with open(paths["facts"], "w") as fh:
+        json.dump(result.document.to_dict(), fh, indent=2)
+
+    # Linkbase outputs — only when the extractor produced them
+    counts = {
+        "calc_edges": 0,
+        "pres_edges": 0,
+        "labs_count": 0,
+        "defs_edges": 0,
+    }
+    output_files = [paths["facts"].name]
+
+    if result.calc is not None:
+        with open(paths["calc"], "w") as fh:
+            json.dump(result.calc.to_dict(), fh, indent=2)
+        counts["calc_edges"] = len(result.calc.arcs)
+        output_files.append(paths["calc"].name)
+
+    if result.presentation is not None:
+        with open(paths["pres"], "w") as fh:
+            json.dump(result.presentation.to_dict(), fh, indent=2)
+        counts["pres_edges"] = len(result.presentation.arcs)
+        output_files.append(paths["pres"].name)
+
+    if result.labels is not None:
+        with open(paths["labs"], "w") as fh:
+            json.dump(result.labels.to_dict(), fh, indent=2)
+        counts["labs_count"] = len(result.labels.entries)
+        output_files.append(paths["labs"].name)
+
+    if result.definitions is not None:
+        with open(paths["defs"], "w") as fh:
+            json.dump(result.definitions.to_dict(), fh, indent=2)
+        counts["defs_edges"] = len(result.definitions.arcs)
+        output_files.append(paths["defs"].name)
 
     elapsed = time.monotonic() - started
     logger.info(
-        "✓ %s → %s  (%d facts, %.2fs)",
+        "✓ %s  (%d facts, calc=%d, pres=%d, labs=%d, defs=%d, %.2fs)",
         zip_path.name,
-        output_path.name,
-        len(doc.facts),
+        len(result.document.facts),
+        counts["calc_edges"],
+        counts["pres_edges"],
+        counts["labs_count"],
+        counts["defs_edges"],
         elapsed,
     )
 
@@ -124,8 +180,9 @@ def _process_one(
         source_file=zip_path.name,
         status="success",
         elapsed=elapsed,
-        facts_total=len(doc.facts),
-        output_file=output_path.name,
+        facts_total=len(result.document.facts),
+        output_files=output_files,
+        **counts,
     )
     return True
 

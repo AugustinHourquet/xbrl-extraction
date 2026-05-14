@@ -17,6 +17,7 @@ The shape:
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from typing import Any
 
 # ---------------------------------------------------------------------------
 # Filing metadata
@@ -155,18 +156,164 @@ class Fact:
 
 @dataclass
 class Document:
-    """Top-level container. Produced by `extractor.extract()`."""
+    """
+    Top-level container. Produced by `extractor.extract()` and consumed
+    by `handlers.py`.
+
+    Facts, periods, and units are the v1 payload — what gets serialised
+    to `<basename>.facts.json`. The four `calc` / `pres` / `labs` /
+    `defs` fields are optional in-memory attachments populated by
+    `attach_*()` or `load_all()`. They are NOT included in `to_dict()`
+    output — each linkbase has its own JSON file on disk.
+
+    Filtering and operational methods live in `handlers.py` and are
+    bound onto this class at import time. See that module's docstring.
+    """
 
     filing: Filing
     periods: dict[str, Period]
     units: dict[str, Unit]
     facts: list[Fact]
 
+    # v2 — optional attached linkbases. Imported lazily inside methods
+    # to avoid an import cycle with linkbases.py / handlers.py.
+    calc: Any | None = None
+    pres: Any | None = None
+    labs: Any | None = None
+    defs: Any | None = None
+
+    # ── Serialisation ──────────────────────────────────────────────
+
     def to_dict(self) -> dict:
-        """Serialize to a JSON-compatible dict."""
+        """Serialize to a JSON-compatible dict (facts.json shape only).
+
+        Attached linkbases are deliberately excluded — they have their
+        own files. Round-trip discipline: load(to_dict()) preserves the
+        facts payload.
+        """
         return {
             "filing": asdict(self.filing),
             "periods": {k: v.to_dict() for k, v in self.periods.items()},
             "units": {k: v.to_dict() for k, v in self.units.items()},
             "facts": [f.to_dict() for f in self.facts],
         }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> Document:
+        """Inverse of `to_dict`. Reconstructs facts/periods/units from
+        the JSON shape. Attached linkbases default to None — use
+        `attach_*` or `load_all` to populate them."""
+        filing = Filing(**d["filing"])
+
+        periods: dict[str, Period] = {}
+        for k, v in d.get("periods", {}).items():
+            periods[k] = Period(
+                type=v["type"],
+                date=v.get("date"),
+                start=v.get("start"),
+                end=v.get("end"),
+            )
+
+        units: dict[str, Unit] = {}
+        for k, v in d.get("units", {}).items():
+            units[k] = Unit(
+                measure=v.get("measure"),
+                numerator=v.get("numerator"),
+                denominator=v.get("denominator"),
+            )
+
+        facts: list[Fact] = []
+        for fd in d.get("facts", []):
+            facts.append(
+                Fact(
+                    concept=fd["concept"],
+                    value=fd["value"],
+                    unit=fd["unit"],
+                    period=fd["period"],
+                    decimals=fd.get("decimals"),
+                    scale=fd.get("scale"),
+                    dimensions=fd.get("dimensions", {}) or {},
+                )
+            )
+
+        return cls(filing=filing, periods=periods, units=units, facts=facts)
+
+    @classmethod
+    def load(cls, path) -> Document:
+        """Load a .facts.json file from disk. Returns a Document with
+        no linkbases attached — call `attach_*` or use `load_all`."""
+        import json as _json
+        from pathlib import Path as _Path
+
+        with open(_Path(path)) as fh:
+            return cls.from_dict(_json.load(fh))
+
+    @classmethod
+    def load_all(cls, facts_path, quiet: bool = False) -> Document:
+        """Load `<basename>.facts.json` and auto-attach any sibling
+        `<basename>.calc.json` / `.pres.json` / `.labs.json` / `.defs.json`
+        files in the same directory.
+
+        Missing siblings log a warning unless `quiet=True`. Never errors
+        on missing siblings — only on a missing facts file or bad JSON.
+        """
+        import logging as _logging
+        from pathlib import Path as _Path
+
+        _logger = _logging.getLogger(__name__)
+
+        facts_path = _Path(facts_path)
+        doc = cls.load(facts_path)
+
+        # Derive `<basename>` by stripping `.facts` from the stem.
+        stem = facts_path.stem  # e.g. "aapl-2025.facts" → "aapl-2025.facts"
+        if stem.endswith(".facts"):
+            base = stem[: -len(".facts")]
+        else:
+            base = stem
+        parent = facts_path.parent
+
+        for kind, attach in (
+            ("calc", doc.attach_calc),
+            ("pres", doc.attach_pres),
+            ("labs", doc.attach_labs),
+            ("defs", doc.attach_defs),
+        ):
+            sibling = parent / f"{base}.{kind}.json"
+            if sibling.exists():
+                attach(sibling)
+            elif not quiet:
+                _logger.warning(
+                    "load_all: sibling %s not found; skipping %s.",
+                    sibling.name,
+                    kind,
+                )
+
+        return doc
+
+    # ── Linkbase attachment ────────────────────────────────────────
+
+    def attach_calc(self, path) -> Document:
+        """Attach a .calc.json. Returns self for chaining."""
+        from xbrl_extraction.linkbases import Calculations
+
+        self.calc = Calculations.load(path)
+        return self
+
+    def attach_pres(self, path) -> Document:
+        from xbrl_extraction.linkbases import Presentation
+
+        self.pres = Presentation.load(path)
+        return self
+
+    def attach_labs(self, path) -> Document:
+        from xbrl_extraction.linkbases import Labels
+
+        self.labs = Labels.load(path)
+        return self
+
+    def attach_defs(self, path) -> Document:
+        from xbrl_extraction.linkbases import Definitions
+
+        self.defs = Definitions.load(path)
+        return self

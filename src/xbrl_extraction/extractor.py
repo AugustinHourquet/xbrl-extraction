@@ -19,9 +19,16 @@ from __future__ import annotations
 import logging
 import zipfile
 from collections import Counter
+from dataclasses import dataclass
 from pathlib import Path
 
-from xbrl_extraction.parser import ParsedDocument, parse_ixbrl
+from xbrl_extraction.linkbases import Calculations, Definitions, Labels, Presentation
+from xbrl_extraction.parsers.calc import extract_calculations
+from xbrl_extraction.parsers.defs import extract_definitions
+from xbrl_extraction.parsers.ixbrl import ParsedDocument, parse_ixbrl
+from xbrl_extraction.parsers.labs import extract_labels
+from xbrl_extraction.parsers.linkbase import parse_role_definitions
+from xbrl_extraction.parsers.pres import extract_presentation
 from xbrl_extraction.schema import Document, Fact, Filing, Period, Unit
 from xbrl_extraction.utils import find_primary_document, read_htm
 
@@ -261,9 +268,80 @@ def _build_facts(parsed: ParsedDocument) -> list[Fact]:
 # ---------------------------------------------------------------------------
 
 
-def extract(zip_path: str | Path) -> Document:
+@dataclass
+class ExtractionResult:
+    """Everything produced from one filing zip.
+
+    `document` is always present. The four linkbase fields are None if
+    the corresponding _cal/_pre/_lab/_def file was missing or failed
+    to parse — extraction degrades gracefully rather than failing the
+    whole filing on a bad linkbase.
     """
-    Extract a single iXBRL filing zip into a structured Document.
+
+    document: Document
+    calc: Calculations | None = None
+    presentation: Presentation | None = None
+    labels: Labels | None = None
+    definitions: Definitions | None = None
+
+
+def _find_linkbase(zf: zipfile.ZipFile, suffix: str) -> str | None:
+    """Find a linkbase file in the zip by suffix (e.g. '_cal.xml').
+
+    Strategy: pick any file ending in `<suffix>`. SEC filings have at
+    most one per zip; if there are multiple (rare), the first match wins.
+    Returns None if no file matches.
+    """
+    suffix = suffix.lower()
+    for name in zf.namelist():
+        if name.lower().endswith(suffix):
+            return name
+    return None
+
+
+def _find_extension_xsd(
+    zf: zipfile.ZipFile,
+    primary: str,
+) -> str | None:
+    """Find the filing's extension .xsd (carries role definitions).
+
+    Convention: same basename as the primary doc, .xsd extension.
+    Fallback: any .xsd file in the zip.
+    """
+    base = primary.rsplit(".", 1)[0]
+    candidate = f"{base}.xsd"
+    names = zf.namelist()
+    if candidate in names:
+        return candidate
+    for name in names:
+        if name.lower().endswith(".xsd"):
+            return name
+    return None
+
+
+def _read_optional(zf: zipfile.ZipFile, name: str | None) -> str | None:
+    """Read and decode a file from the zip, or return None if it's missing
+    or unreadable. Used for linkbases (best-effort)."""
+    if name is None:
+        return None
+    try:
+        raw = zf.read(name)
+    except KeyError:
+        return None
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return raw.decode("latin-1")
+
+
+def extract(zip_path: str | Path) -> ExtractionResult:
+    """
+    Extract a single iXBRL filing zip into a structured ExtractionResult.
+
+    Always produces a Document (facts). Best-effort produces Calculations,
+    Presentation, Labels, Definitions from the linkbase XML files; any
+    missing or unparseable linkbase becomes None with a logged warning,
+    rather than failing the whole extraction.
 
     Raises:
         FileNotFoundError if the zip doesn't exist.
@@ -283,6 +361,13 @@ def extract(zip_path: str | Path) -> Document:
         logger.info("Primary document: %s", primary)
         htm_content = read_htm(zf, primary)
 
+        # Read linkbase files and .xsd up-front while the zip is open.
+        cal_xml = _read_optional(zf, _find_linkbase(zf, "_cal.xml"))
+        pre_xml = _read_optional(zf, _find_linkbase(zf, "_pre.xml"))
+        lab_xml = _read_optional(zf, _find_linkbase(zf, "_lab.xml"))
+        def_xml = _read_optional(zf, _find_linkbase(zf, "_def.xml"))
+        xsd = _read_optional(zf, _find_extension_xsd(zf, primary))
+
     parsed = parse_ixbrl(htm_content)
 
     filing = _extract_filing_metadata(
@@ -292,9 +377,67 @@ def extract(zip_path: str | Path) -> Document:
         primary_document=primary,
     )
 
-    return Document(
+    document = Document(
         filing=filing,
         periods=_build_periods(parsed),
         units=_build_units(parsed),
         facts=_build_facts(parsed),
     )
+
+    # Linkbases — each is best-effort.
+    filing_meta = {
+        "source_file": zip_path.name,
+        "primary_document": primary,
+    }
+    role_definitions = parse_role_definitions(xsd) if xsd else {}
+
+    calc = _safe_extract(
+        "calc",
+        extract_calculations,
+        cal_xml,
+        filing_meta,
+        role_definitions,
+    )
+    pres = _safe_extract(
+        "pres",
+        extract_presentation,
+        pre_xml,
+        filing_meta,
+        role_definitions,
+    )
+    labs = _safe_extract(
+        "labs",
+        extract_labels,
+        lab_xml,
+        filing_meta,
+    )
+    defs = _safe_extract(
+        "defs",
+        extract_definitions,
+        def_xml,
+        filing_meta,
+    )
+
+    return ExtractionResult(
+        document=document,
+        calc=calc,
+        presentation=pres,
+        labels=labs,
+        definitions=defs,
+    )
+
+
+def _safe_extract(name: str, fn, xml_content: str | None, *args):
+    """Run a linkbase extractor with graceful failure.
+
+    If the XML is missing or the parser raises, log a warning and
+    return None. The rest of the extraction continues normally.
+    """
+    if xml_content is None:
+        logger.warning("%s: linkbase file not found in zip; skipping.", name)
+        return None
+    try:
+        return fn(xml_content, *args)
+    except Exception as exc:
+        logger.warning("%s: extraction failed (%s); skipping.", name, exc)
+        return None

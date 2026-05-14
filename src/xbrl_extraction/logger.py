@@ -39,7 +39,11 @@ def log_run(
     status: str,
     elapsed: float,
     facts_total: int = 0,
-    output_file: str | None = None,
+    calc_edges: int = 0,
+    pres_edges: int = 0,
+    labs_count: int = 0,
+    defs_edges: int = 0,
+    output_files: list[str] | None = None,
     error: str | None = None,
 ) -> None:
     """
@@ -47,6 +51,9 @@ def log_run(
 
     Status is one of: "success", "parse_error", "io_error".
     The file is created on first call; never rewritten.
+
+    The v2 record shape lists every output file under `output_files`
+    (plural) and includes per-linkbase edge counts.
     """
     log_dir.mkdir(parents=True, exist_ok=True)
     path = log_dir / "run_log.jsonl"
@@ -57,7 +64,11 @@ def log_run(
         "status": status,
         "elapsed_seconds": round(elapsed, 3),
         "facts_total": facts_total,
-        "output_file": output_file,
+        "calc_edges": calc_edges,
+        "pres_edges": pres_edges,
+        "labs_count": labs_count,
+        "defs_edges": defs_edges,
+        "output_files": output_files or [],
         "error": error,
     }
 

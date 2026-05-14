@@ -3,13 +3,9 @@
 install:
 	pip install -e ".[dev]"
 
-# format:
-# 	black .
 format:
 	black src tests
 
-# lint:
-# 	ruff check . --fix
 lint:
 	ruff check src tests --fix
 
