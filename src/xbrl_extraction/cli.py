@@ -15,9 +15,13 @@ Output filenames are derived from the input zip basename:
   rawdata_us_1860_..._XBRL_2025-09-27.zip
   → rawdata_us_1860_..._XBRL_2025-09-27.facts.json
 
-Idempotency: by default, a zip is skipped when its output JSON already
-exists. Pass --force to re-extract everything (e.g. after an extractor
+Idempotency: by default, a zip is skipped when all five output JSONs
+exist. Pass --force to re-extract everything (e.g. after an extractor
 bug fix). Skipped files do NOT produce a run_log.jsonl record.
+
+By default the CLI emits five files per zip (facts + calc/pres/labs/defs).
+Pass --facts-only to emit just facts.json — useful when you only need
+the raw fact data and don't want to wait for linkbase parsing.
 
 Each run appends one record per file processed (success or failure) to
 logs/run_log.jsonl.
@@ -83,23 +87,35 @@ def _process_one(
     output_dir: Path,
     log_dir: Path,
     force: bool = False,
+    facts_only: bool = False,
 ) -> bool:
     """
-    Extract one zip and write the five JSONs. Returns True on success OR skip.
+    Extract one zip and write the output JSON(s). Returns True on success OR skip.
 
-    Idempotency: skip when ALL five output files already exist. If any
-    are missing, regenerate all five (cheap, ensures consistent state).
-    Pass force=True to re-extract regardless.
+    Idempotency:
+      - Default mode: skip when ALL five output files already exist.
+      - facts_only mode: skip when just .facts.json exists.
+    Missing any → regenerate (ensures consistent state). Pass
+    force=True to re-extract regardless.
+
+    facts_only mode still parses everything (extraction is single-pass),
+    it just doesn't write the four linkbase JSONs. The runtime saving
+    is modest; the main use case is keeping output/ uncluttered when
+    you only care about the raw fact data.
 
     All exceptions are caught and turned into a run-log record; the
     caller decides whether to keep going with the next file.
     """
     paths = _output_paths_for(zip_path, output_dir)
 
-    if not force and all(p.exists() for p in paths.values()):
+    # Idempotency check — different file set depending on facts_only
+    required = [paths["facts"]] if facts_only else list(paths.values())
+    if not force and all(p.exists() for p in required):
+        suffix = " (facts only)" if facts_only else ""
         logger.info(
-            "⊘ %s → already extracted (use --force to re-run)",
+            "⊘ %s → already extracted%s (use --force to re-run)",
             zip_path.name,
+            suffix,
         )
         return True
 
@@ -130,7 +146,8 @@ def _process_one(
     with open(paths["facts"], "w") as fh:
         json.dump(result.document.to_dict(), fh, indent=2)
 
-    # Linkbase outputs — only when the extractor produced them
+    # Linkbase outputs — written only when not facts_only AND the
+    # extractor produced them.
     counts = {
         "calc_edges": 0,
         "pres_edges": 0,
@@ -139,41 +156,50 @@ def _process_one(
     }
     output_files = [paths["facts"].name]
 
-    if result.calc is not None:
-        with open(paths["calc"], "w") as fh:
-            json.dump(result.calc.to_dict(), fh, indent=2)
-        counts["calc_edges"] = len(result.calc.arcs)
-        output_files.append(paths["calc"].name)
+    if not facts_only:
+        if result.calc is not None:
+            with open(paths["calc"], "w") as fh:
+                json.dump(result.calc.to_dict(), fh, indent=2)
+            counts["calc_edges"] = len(result.calc.arcs)
+            output_files.append(paths["calc"].name)
 
-    if result.presentation is not None:
-        with open(paths["pres"], "w") as fh:
-            json.dump(result.presentation.to_dict(), fh, indent=2)
-        counts["pres_edges"] = len(result.presentation.arcs)
-        output_files.append(paths["pres"].name)
+        if result.presentation is not None:
+            with open(paths["pres"], "w") as fh:
+                json.dump(result.presentation.to_dict(), fh, indent=2)
+            counts["pres_edges"] = len(result.presentation.arcs)
+            output_files.append(paths["pres"].name)
 
-    if result.labels is not None:
-        with open(paths["labs"], "w") as fh:
-            json.dump(result.labels.to_dict(), fh, indent=2)
-        counts["labs_count"] = len(result.labels.entries)
-        output_files.append(paths["labs"].name)
+        if result.labels is not None:
+            with open(paths["labs"], "w") as fh:
+                json.dump(result.labels.to_dict(), fh, indent=2)
+            counts["labs_count"] = len(result.labels.entries)
+            output_files.append(paths["labs"].name)
 
-    if result.definitions is not None:
-        with open(paths["defs"], "w") as fh:
-            json.dump(result.definitions.to_dict(), fh, indent=2)
-        counts["defs_edges"] = len(result.definitions.arcs)
-        output_files.append(paths["defs"].name)
+        if result.definitions is not None:
+            with open(paths["defs"], "w") as fh:
+                json.dump(result.definitions.to_dict(), fh, indent=2)
+            counts["defs_edges"] = len(result.definitions.arcs)
+            output_files.append(paths["defs"].name)
 
     elapsed = time.monotonic() - started
-    logger.info(
-        "✓ %s  (%d facts, calc=%d, pres=%d, labs=%d, defs=%d, %.2fs)",
-        zip_path.name,
-        len(result.document.facts),
-        counts["calc_edges"],
-        counts["pres_edges"],
-        counts["labs_count"],
-        counts["defs_edges"],
-        elapsed,
-    )
+    if facts_only:
+        logger.info(
+            "✓ %s  (%d facts, facts-only, %.2fs)",
+            zip_path.name,
+            len(result.document.facts),
+            elapsed,
+        )
+    else:
+        logger.info(
+            "✓ %s  (%d facts, calc=%d, pres=%d, labs=%d, defs=%d, %.2fs)",
+            zip_path.name,
+            len(result.document.facts),
+            counts["calc_edges"],
+            counts["pres_edges"],
+            counts["labs_count"],
+            counts["defs_edges"],
+            elapsed,
+        )
 
     log_run(
         log_dir,
@@ -197,6 +223,7 @@ def _process_directory(
     output_dir: Path,
     log_dir: Path,
     force: bool = False,
+    facts_only: bool = False,
 ) -> int:
     """Process every *.zip in `input_dir`. Returns count of failures."""
     zips = sorted(input_dir.glob("*.zip"))
@@ -207,7 +234,7 @@ def _process_directory(
     logger.info("Processing %d file(s) from %s", len(zips), input_dir)
     failures = 0
     for zip_path in zips:
-        if not _process_one(zip_path, output_dir, log_dir, force=force):
+        if not _process_one(zip_path, output_dir, log_dir, force=force, facts_only=facts_only):
             failures += 1
 
     logger.info("Done. %d succeeded, %d failed.", len(zips) - failures, failures)
@@ -246,8 +273,15 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "-f",
         "--force",
         action="store_true",
-        help="Re-extract zips even when their .facts.json already exists. "
+        help="Re-extract zips even when their output files already exist. "
         "Default behavior is to skip already-extracted files.",
+    )
+    parser.add_argument(
+        "--facts-only",
+        action="store_true",
+        help="Emit only .facts.json; skip writing the four linkbase JSONs "
+        "(.calc / .pres / .labs / .defs). Idempotency checks against "
+        "facts.json alone in this mode.",
     )
     parser.add_argument(
         "-v",
@@ -275,6 +309,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output_dir,
             args.log_dir,
             force=args.force,
+            facts_only=args.facts_only,
         )
         return 0 if failures == 0 else 1
 
@@ -284,6 +319,7 @@ def main(argv: list[str] | None = None) -> int:
             args.output_dir,
             args.log_dir,
             force=args.force,
+            facts_only=args.facts_only,
         )
         return 0 if ok else 1
 

@@ -19,12 +19,14 @@ to be loaded into pandas or operated on through the `Document` API.
 5. [Data workflow](#data-workflow)
 6. [Setup](#setup)
 7. [CLI usage](#cli-usage)
-8. [Programmatic usage](#programmatic-usage)
-9. [Output schema](#output-schema)
-10. [Run log](#run-log)
-11. [Limitations](#limitations)
-12. [Migration from v1](#migration-from-v1)
-13. [Development](#development)
+8. [Make targets](#make-targets)
+9. [Inspecting outputs from the terminal](#inspecting-outputs-from-the-terminal)
+10. [Programmatic usage](#programmatic-usage)
+11. [Output schema](#output-schema)
+12. [Run log](#run-log)
+13. [Limitations](#limitations)
+14. [Migration from v1](#migration-from-v1)
+15. [Development](#development)
 
 ---
 
@@ -177,6 +179,9 @@ xbrl-extraction/
 ├── logs/
 │   └── run_log.jsonl              # appended, one line per filing
 │
+├── scripts/
+│   └── inspect_filings.py         # CLI inspector for extracted JSON
+│
 ├── tests/
 │   ├── test_setup.py
 │   ├── test_parser.py
@@ -298,8 +303,119 @@ to re-extract regardless:
 python -m xbrl_extraction data/input/ --force
 ```
 
+**Facts-only mode.** Pass `--facts-only` to emit just `.facts.json` and
+skip the four linkbase outputs. Useful when you only need raw fact
+data and want to keep `data/output/` uncluttered:
+
+```bash
+python -m xbrl_extraction data/input/ --facts-only
+```
+
+In this mode, idempotency checks against `.facts.json` alone. Re-run
+without `--facts-only` later to fill in the linkbase JSONs.
+
 If a linkbase file is missing inside the source zip (rare), that one
 output is skipped with a warning and the other four still produce.
+
+---
+
+## Make targets
+
+Common workflows are wrapped as `make` targets. `make help` lists them.
+
+```
+Project commands:
+  install            pip install -e ".[dev]"
+  format             black src tests scripts
+  lint               ruff check src tests scripts --fix
+  test               pytest
+  clean              remove build artifacts and caches
+
+Extraction:
+  extract FILE=path/to/file.zip     Extract a single zip (all 5 outputs).
+  extract-all                       Every zip in data/input/ (skip already-done).
+  extract-force                     Re-extract everything (ignore idempotency).
+  extract-facts                     facts.json only (no linkbases). FILE=... optional.
+
+Inspection (FILE=<company_id> like 1860 for Apple):
+  summary    FILE=1860 [YEAR=2025]
+  statements FILE=1860 [YEAR=2025]
+  render     FILE=1860 ROLE=CONSOLIDATEDBALANCESHEETS [YEAR=2025] [DATE=2025-09-27]
+  verify     FILE=1860 ROLE=CONSOLIDATEDBALANCESHEETS [YEAR=2025] [DATE=...] [TOLERANCE=0]
+
+Logs & cleanup:
+  clean-output                      Wipe data/output/.
+  log-tail                          tail -f logs/run_log.jsonl
+  log-failures                      jq for failed runs.
+```
+
+Targets that operate on one filing take **`FILE=<company_id>`**. The
+ID is the number embedded in the source zip's filename — `1860` for
+`rawdata_us_1860_1860_XBRL_2025-09-27.zip` (Apple). When a company
+has multiple filings (different fiscal years) in `data/output/`, the
+most recent is used unless `YEAR=` is passed.
+
+`render` and `verify` need a **`ROLE=`** (use `make statements
+FILE=...` to list the available `role_short` values for that filing).
+**`DATE=`** is optional; it defaults to the filing's own `period_end`
+(the FY-end date), which is what you want 99% of the time.
+
+---
+
+## Inspecting outputs from the terminal
+
+The Make targets above wrap a standalone script
+(`scripts/inspect_filings.py`) that you can also invoke directly:
+
+```bash
+# One-page overview
+python scripts/inspect_filings.py summary --file 1860
+
+# List available statements (role_short values)
+python scripts/inspect_filings.py statements --file 1860
+
+# Render a statement to stdout
+python scripts/inspect_filings.py render \
+    --file 1860 --role CONSOLIDATEDBALANCESHEETS
+
+# Verify arithmetic, strict by default; pass --tolerance to loosen
+python scripts/inspect_filings.py verify \
+    --file 1860 --role CONSOLIDATEDBALANCESHEETS --tolerance 0
+```
+
+Sample `render` output (Apple FY2025, abridged):
+
+```
+CONSOLIDATED BALANCE SHEETS — period ending 2025-09-27 (in millions USD)
+
+    Statement of Financial Position [Abstract]
+      ASSETS:
+        Current assets:
+        + Cash and cash equivalents                                  35,934
+        + Marketable securities                                      18,763
+        + Accounts receivable, net                                   39,777
+        + Vendor non-trade receivables                               33,180
+        + Inventories                                                 5,718
+        + Other current assets                                       14,585
+          Total current assets                                      147,957
+        ...
+        Total assets                                                359,241
+```
+
+Sample `verify` output:
+
+```
+                                  parent  expected   actual  diff  status              role
+                          us-gaap:Assets  359241.0 359241.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+                   us-gaap:AssetsCurrent  147957.0 147957.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+                us-gaap:AssetsNoncurrent  211284.0 211284.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+                     us-gaap:Liabilities  285508.0 285508.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+              us-gaap:LiabilitiesCurrent  165631.0 165631.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+           us-gaap:LiabilitiesNoncurrent  119877.0 119877.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+              us-gaap:StockholdersEquity   73733.0  73733.0   0.0  match  CONSOLIDATEDBALANCESHEETS
+
+Status counts: match=7  missing_children=1
+```
 
 ---
 
@@ -637,15 +753,20 @@ black handle formatting.
 
 ### Day-to-day commands
 
+`make help` lists everything. Common ones:
+
 ```bash
 make install       # pip install -e ".[dev]"
-make format        # black src tests
-make lint          # ruff check src tests --fix
+make format        # black src tests scripts
+make lint          # ruff check src tests scripts --fix
 make test          # pytest
 make setup-check   # pytest tests/test_setup.py -v
 make clean         # remove build artifacts and caches
-make run-sample    # python -m xbrl_extraction data/input/
+make extract-all   # extract every zip in data/input/
 ```
+
+See [Make targets](#make-targets) for the full extraction and
+inspection commands.
 
 ### Running tests
 

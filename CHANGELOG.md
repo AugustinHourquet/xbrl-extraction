@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ---
 
+## [2.1.0] — 2026-05
+
+### Added
+- `scripts/inspect_filings.py` — standalone CLI inspector with four
+  subcommands: `summary`, `statements`, `render`, `verify`. Resolves
+  filings by company ID (the numeric segment of the source zip
+  filename, e.g. `1860` for Apple).
+- New Make targets wrapping the most common workflows:
+  - **Extraction:** `extract FILE=...`, `extract-all`, `extract-force`,
+    `extract-facts` (single file or batch).
+  - **Inspection:** `summary`, `statements`, `render`, `verify` —
+    each takes `FILE=<company_id>` with optional `YEAR=`, `ROLE=`,
+    `DATE=`, `TOLERANCE=` qualifiers.
+  - **Logs & cleanup:** `clean-output`, `log-tail`, `log-failures`.
+  - **`make help`** lists everything with usage examples.
+- `--facts-only` flag on the CLI: emit only `.facts.json` and skip
+  the four linkbase JSONs. Idempotency in this mode checks against
+  `.facts.json` alone.
+
+### Changed
+- `make format` and `make lint` now also cover `scripts/`.
+
+---
+
 ## [2.0.0] — 2026-05
 
 ### Added
