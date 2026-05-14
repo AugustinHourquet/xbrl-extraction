@@ -1,18 +1,25 @@
 [build-system]
-requires      = ["setuptools>=68"]
+requires      = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name             = "xbrl-extraction"
-version          = "0.1.0"
-requires-python  = ">=3.10"
-dependencies     = [
-    "python-dotenv",
-    "lxml",          # XBRL/XML parsing
+name            = "xbrl-extraction"
+version         = "1.0.0"
+description     = "Transform iXBRL filing zips into structured JSON."
+readme          = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "beautifulsoup4>=4.12",
+    "lxml>=4.9",
 ]
 
 [project.optional-dependencies]
-dev = ["black", "ruff", "pytest"]
+dev = [
+    "pytest>=8.0",
+    "black>=24.0",
+    "ruff>=0.7",
+    "pandas>=2.0",   # for v2 handlers; pulled in early for notebooks
+]
 
 [project.scripts]
 xbrl-extract = "xbrl_extraction.cli:main"
@@ -20,12 +27,26 @@ xbrl-extract = "xbrl_extraction.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+
 [tool.black]
 line-length    = 100
 target-version = ["py310"]
-exclude        = "data/|logs/|notebooks/|.venv/"
 
 [tool.ruff]
-line-length    = 100
+line-length = 100
 target-version = "py310"
-exclude        = ["data", "logs", "notebooks", ".venv"]
+
+[tool.ruff.lint]
+# Let black own formatting (per README).
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["E501"]    # line length is black's job
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts   = "-ra"
+filterwarnings = [
+    "ignore::bs4.XMLParsedAsHTMLWarning",
+]
