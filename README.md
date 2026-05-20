@@ -3,10 +3,11 @@
 Transform iXBRL filing zips into structured JSON, then query, validate,
 and reconstruct financial statements from the result.
 
-One `.zip` in → five `.json` files out (facts plus four linkbases). No
-canonical naming, no external taxonomies, no opinions about what the
-data means. The output is a faithful structural transcription, designed
-to be loaded into pandas or operated on through the `Document` API.
+One `.zip` in → one `.json` out, containing facts plus all four linkbases
+under a single envelope. No canonical naming, no external taxonomies, no
+opinions about what the data means. The output is a faithful structural
+transcription, designed to be loaded into pandas or operated on through
+the `Document` API.
 
 ---
 
@@ -25,7 +26,7 @@ to be loaded into pandas or operated on through the `Document` API.
 11. [Output schema](#output-schema)
 12. [Run log](#run-log)
 13. [Limitations](#limitations)
-14. [Migration from v1](#migration-from-v1)
+14. [Migration from v2](#migration-from-v2)
 15. [Development](#development)
 
 ---
@@ -52,8 +53,9 @@ to be loaded into pandas or operated on through the `Document` API.
 - Provides a `Document` class for filtering, dataframe export,
   calc-aware navigation, arithmetic verification, and indented
   statement reconstruction.
-- Writes five JSONs per filing and appends a structured record per run
-  to `logs/run_log.jsonl`.
+- Writes one combined JSON per filing (facts + four linkbases under a
+  single envelope) and appends a structured record per run to
+  `logs/run_log.jsonl`.
 
 **Does not:**
 
@@ -85,19 +87,20 @@ faithfully:
 Each `ix:nonFraction` in the source is one *fact* — concept + context +
 unit + numeric value.
 
-v2 adds **four side files** describing relationships between concepts
-that aren't carried in the facts themselves:
+v2 added four linkbase sections describing relationships between concepts
+that aren't carried in the facts themselves. v3 merged all five sections
+into a single combined JSON:
 
-| File | Content | Used for |
+| Section key | Content | Used for |
 |---|---|---|
-| `.calc.json` | "Assets = AssetsCurrent + AssetsNoncurrent" | `verify()`, statement signs |
-| `.pres.json` | "Cash appears under Current Assets, in this order" | filtering by statement, statement rendering |
-| `.labs.json` | `us-gaap:Assets` → "Total assets" | pretty labels everywhere |
-| `.defs.json` | "ProductOrServiceAxis applies to RevenueLineItems" | dimensional validators (future) |
+| `calc` | "Assets = AssetsCurrent + AssetsNoncurrent" | `verify()`, statement signs |
+| `pres` | "Cash appears under Current Assets, in this order" | filtering by statement, statement rendering |
+| `labs` | `us-gaap:Assets` → "Total assets" | pretty labels everywhere |
+| `defs` | "ProductOrServiceAxis applies to RevenueLineItems" | dimensional validators (future) |
 
-All five files use the same raw concept names as the universal join
-key. Nothing nested, no translation layer — flat lists of edges, with
-the consumer rebuilding trees on demand via `Document.tree()` etc.
+All sections use the same raw concept names as the universal join key.
+Nothing nested, no translation layer — flat lists of edges, with the
+consumer rebuilding trees on demand via `Document.tree()` etc.
 
 ---
 
@@ -120,9 +123,9 @@ types.
 **Skip non-numeric facts.** A 10-K has ~1,000 numeric facts and 10,000+
 non-numeric. Consumers wanting prose disclosures have better tools.
 
-**Linkbases are separate files, not merged.** Facts is the 95% case;
-calc/pres/labs/defs are separate concerns. Loading all five is a single
-`Document.load_all()` call; loading just facts is `Document.load()`.
+**Single combined output file.** All five sections live under one JSON
+envelope. `Document.load(path)` loads everything; pass `linkbases=False`
+to load facts only.
 
 **Linkbase failures degrade gracefully.** A malformed `_cal.xml` logs a
 warning and leaves `result.calc = None` — the facts.json still ships.
@@ -173,7 +176,7 @@ xbrl-extraction/
 │
 ├── data/
 │   ├── input/                     # drop *.zip filings here
-│   ├── output/                    # *.{facts,calc,pres,labs,defs}.json
+│   ├── output/                    # *.json (combined per filing)
 │   └── _debug/
 │
 ├── logs/
@@ -217,25 +220,26 @@ flowchart TB
 
     SCHEMA["<b>schema.Document</b><br/>+ handlers methods"]
 
-    F["📄 *.facts.json"]
-    C["📄 *.calc.json"]
-    P["📄 *.pres.json"]
-    L["📄 *.labs.json"]
-    D["📄 *.defs.json"]
+    OUT["📄 *.json<br/><i>facts + calc + pres + labs + defs</i>"]
 
     LOGGER["<b>logger.py</b><br/>log_run()"]
     RUNLOG["📝 logs/run_log.jsonl"]
 
     INPUT --> CLI --> EXTRACTOR
-    EXTRACTOR --> IXBRL --> SCHEMA --> F
-    EXTRACTOR --> CALC --> C
-    EXTRACTOR --> PRES --> P
-    EXTRACTOR --> LABS --> L
-    EXTRACTOR --> DEFS --> D
+    EXTRACTOR --> IXBRL --> SCHEMA
+    EXTRACTOR --> CALC
+    EXTRACTOR --> PRES
+    EXTRACTOR --> LABS
+    EXTRACTOR --> DEFS
     CALC -.uses.-> LB
     PRES -.uses.-> LB
     LABS -.uses.-> LB
     DEFS -.uses.-> LB
+    SCHEMA --> OUT
+    CALC --> OUT
+    PRES --> OUT
+    LABS --> OUT
+    DEFS --> OUT
 
     CLI -.writes via.-> LOGGER
     LOGGER -.appends.-> RUNLOG
@@ -244,7 +248,7 @@ flowchart TB
     classDef code fill:#fff5e6,stroke:#ff7f0e,stroke-width:1.5px,color:#000
     classDef shared fill:#f0e6ff,stroke:#7e3eff,stroke-width:1.5px,color:#000
 
-    class INPUT,F,C,P,L,D,RUNLOG io
+    class INPUT,OUT,RUNLOG io
     class CLI,EXTRACTOR,IXBRL,CALC,PRES,LABS,DEFS,SCHEMA,LOGGER code
     class LB shared
 ```
@@ -285,37 +289,30 @@ Output:
 ✓ aapl.zip  (830 facts, calc=213, pres=749, labs=1452, defs=373, 0.53s)
 ```
 
-Five files are produced per input zip:
+One file is produced per input zip:
 
 ```
-data/output/aapl.facts.json
-data/output/aapl.calc.json
-data/output/aapl.pres.json
-data/output/aapl.labs.json
-data/output/aapl.defs.json
+data/output/aapl.json
 ```
 
-**Idempotency.** A zip is skipped when all five output files exist. Any
-missing → all five regenerated (consistent-state rule). Pass `--force`
-to re-extract regardless:
+The file has five top-level keys: `facts`, `calc`, `pres`, `labs`, `defs`.
+
+**Idempotency.** A zip is skipped when its output JSON already exists.
+Pass `--force` to re-extract regardless:
 
 ```bash
 python -m xbrl_extraction data/input/ --force
 ```
 
-**Facts-only mode.** Pass `--facts-only` to emit just `.facts.json` and
-skip the four linkbase outputs. Useful when you only need raw fact
-data and want to keep `data/output/` uncluttered:
+**Facts-only mode.** Pass `--facts-only` to omit the four linkbase
+sections from the output JSON. Useful when you only need raw fact data:
 
 ```bash
 python -m xbrl_extraction data/input/ --facts-only
 ```
 
-In this mode, idempotency checks against `.facts.json` alone. Re-run
-without `--facts-only` later to fill in the linkbase JSONs.
-
-If a linkbase file is missing inside the source zip (rare), that one
-output is skipped with a warning and the other four still produce.
+If a linkbase file is missing inside the source zip (rare), that section
+is omitted from the combined JSON with a warning; the rest still produce.
 
 ---
 
@@ -332,10 +329,10 @@ Project commands:
   clean              remove build artifacts and caches
 
 Extraction:
-  extract FILE=path/to/file.zip     Extract a single zip (all 5 outputs).
+  extract FILE=path/to/file.zip     Extract a single zip (combined JSON).
   extract-all                       Every zip in data/input/ (skip already-done).
   extract-force                     Re-extract everything (ignore idempotency).
-  extract-facts                     facts.json only (no linkbases). FILE=... optional.
+  extract-facts                     Facts section only (no linkbases). FILE=... optional.
 
 Inspection (FILE=<company_id> like 1860 for Apple):
   summary    FILE=1860 [YEAR=2025]
@@ -424,8 +421,8 @@ Status counts: match=7  missing_children=1
 ```python
 from xbrl_extraction import Document
 
-# Load facts + auto-attach sibling linkbase files
-doc = Document.load_all("data/output/aapl.facts.json")
+# Load combined filing JSON — facts + all four linkbases
+doc = Document.load("data/output/aapl.json")
 
 # One-page overview
 print(doc.summary())
@@ -488,31 +485,37 @@ CONSOLIDATED BALANCE SHEETS — period ending 2025-09-27 (in millions USD)
 `+ ` leaves are calc children with weight 1; `- ` leaves have weight -1
 (subtractions). Subtotals (rows that are calc parents) get no sign.
 
-### Loading without auto-discovery
+### Loading facts only
 
 ```python
-# Facts only
-doc = Document.load("data/output/aapl.facts.json")
+# Skip linkbase sections — useful for fast fact-only workflows
+doc = Document.load("data/output/aapl.json", linkbases=False)
 
-# Explicit attachment
-doc.attach_calc("data/output/aapl.calc.json")
-doc.attach_pres("data/output/aapl.pres.json")
-doc.attach_labs("data/output/aapl.labs.json")
-
-# Methods that need an unattached linkbase raise a clear error:
-# doc.verify(...)  → RuntimeError: Calculations not attached. Call doc.attach_calc(...) first.
+# Methods that need a linkbase raise a clear error:
+# doc.verify(...)  → RuntimeError: Calculations not attached.
+#                    Load the filing with Document.load(path) (linkbases are included by default).
 ```
-
-`load_all()` warns on each missing sibling; pass `quiet=True` to
-silence.
 
 ---
 
 ## Output schema
 
-### facts.json
+Each filing produces a single JSON file with five top-level keys. All
+are present by default; `calc`/`pres`/`labs`/`defs` are omitted when
+the corresponding linkbase was missing in the source zip, or when
+`--facts-only` was passed.
 
-The v1 shape, unchanged:
+```json
+{
+  "facts": { ... },
+  "calc":  { ... },
+  "pres":  { ... },
+  "labs":  { ... },
+  "defs":  { ... }
+}
+```
+
+### `facts`
 
 ```json
 {
@@ -530,7 +533,7 @@ The v1 shape, unchanged:
 }
 ```
 
-### calc.json
+### `calc`
 
 Flat list of arithmetic edges, plus role definitions:
 
@@ -552,9 +555,9 @@ Flat list of arithmetic edges, plus role definitions:
 }
 ```
 
-### pres.json
+### `pres`
 
-Same shape as calc, with `preferred_label` instead of `weight`, and
+Same shape as `calc`, with `preferred_label` instead of `weight`, and
 human-readable `role_definition` inlined on each arc:
 
 ```json
@@ -572,7 +575,7 @@ human-readable `role_definition` inlined on each arc:
 }
 ```
 
-### labs.json
+### `labs`
 
 Flat list of label records. A concept usually has 2–6 labels:
 
@@ -593,7 +596,7 @@ Flat list of label records. A concept usually has 2–6 labels:
 }
 ```
 
-### defs.json
+### `defs`
 
 Dimensional relationships. `arc_role` is stripped to its local name
 (`hypercube-dimension`, `domain-member`, etc.) and `from`/`to` carry
@@ -653,10 +656,7 @@ Skipped files (idempotency) do not produce records.
   "pres_edges": 749,
   "labs_count": 1452,
   "defs_edges": 373,
-  "output_files": [
-    "aapl.facts.json", "aapl.calc.json", "aapl.pres.json",
-    "aapl.labs.json", "aapl.defs.json"
-  ],
+  "output_files": ["aapl.json"],
   "error": null
 }
 ```
@@ -701,47 +701,75 @@ jq -s '[.[] | select(.status == "success") | .facts_total] | add' logs/run_log.j
 
 ---
 
-## Migration from v1
+## Migration from v2
 
-v2.0.0 is a hard-break release. No shims.
+v3.0.0 is a hard-break release. No shims.
 
-**Affected import path:**
+**Output files** — five separate files → one combined file:
 
-```python
-# v1
-from xbrl_extraction.parser import parse_ixbrl
+```
+# v2 output
+data/output/aapl.facts.json
+data/output/aapl.calc.json
+data/output/aapl.pres.json
+data/output/aapl.labs.json
+data/output/aapl.defs.json
 
-# v2
-from xbrl_extraction.parsers.ixbrl import parse_ixbrl
-# or, preferred:
-from xbrl_extraction import parse_ixbrl
+# v3 output
+data/output/aapl.json          ← all five sections under one envelope
 ```
 
-**`extract()` return type:**
+Re-extract any existing `data/output/` to get combined files:
+```bash
+python -m xbrl_extraction data/input/ --force
+```
+
+**Loading API:**
+
+```python
+# v2
+doc = Document.load_all("data/output/aapl.facts.json")   # auto-discovered siblings
+doc = Document.load("data/output/aapl.facts.json")        # facts only
+doc.attach_calc("data/output/aapl.calc.json")             # explicit attachment
+
+# v3
+doc = Document.load("data/output/aapl.json")              # facts + all linkbases (default)
+doc = Document.load("data/output/aapl.json", linkbases=False)  # facts only
+```
+
+**`inspect_filings.py`** — `--file` now resolves against `*.json` files
+(previously `*.facts.json`). No change to the interface; re-extract
+first.
+
+**Run log shape** (for anyone consuming `run_log.jsonl`):
+
+```jsonc
+// v2
+{ "output_files": ["aapl.facts.json", "aapl.calc.json", ...], ... }
+
+// v3
+{ "output_files": ["aapl.json"], ... }
+```
+
+See `CHANGELOG.md` for the full breaking-changes list.
+
+---
+
+## Migration from v1
+
+v2.0.0 introduced linkbases and changed the `extract()` return type.
+See `CHANGELOG.md` [2.0.0] for that migration.
+
+**`extract()` return type (v1 → v2, still applies in v3):**
 
 ```python
 # v1
 doc = extract("filing.zip")
 
-# v2
+# v2 / v3
 result = extract("filing.zip")
 doc    = result.document
-# Plus: result.calc, result.presentation, result.labels, result.definitions
 ```
-
-**Run log shape** (for anyone consuming `run_log.jsonl`):
-
-```jsonc
-// v1
-{ "output_file": "aapl.facts.json", ... }
-
-// v2
-{ "output_files": ["aapl.facts.json", "aapl.calc.json", ...],
-  "calc_edges": 213, "pres_edges": 749, "labs_count": 1452, "defs_edges": 373,
-  ... }
-```
-
-See `CHANGELOG.md` for the full breaking-changes list.
 
 ---
 

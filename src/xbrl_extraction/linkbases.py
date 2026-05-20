@@ -12,9 +12,7 @@ Design rule: containers are dumb. They store data and offer `.load()` and
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
-from pathlib import Path
 
 # ---------------------------------------------------------------------------
 # Calculation linkbase
@@ -66,11 +64,6 @@ class Calculations:
             arcs=[CalcArc(**a) for a in d.get("calculations", [])],
         )
 
-    @classmethod
-    def load(cls, path: str | Path) -> Calculations:
-        with open(path) as fh:
-            return cls.from_dict(json.load(fh))
-
 
 # ---------------------------------------------------------------------------
 # Presentation linkbase
@@ -119,11 +112,6 @@ class Presentation:
             arcs=[PresArc(**a) for a in d.get("presentation", [])],
         )
 
-    @classmethod
-    def load(cls, path: str | Path) -> Presentation:
-        with open(path) as fh:
-            return cls.from_dict(json.load(fh))
-
 
 # ---------------------------------------------------------------------------
 # Label linkbase
@@ -170,11 +158,6 @@ class Labels:
             filing=d.get("filing", {}),
             entries=[LabelEntry(**e) for e in d.get("labels", [])],
         )
-
-    @classmethod
-    def load(cls, path: str | Path) -> Labels:
-        with open(path) as fh:
-            return cls.from_dict(json.load(fh))
 
     def get(
         self,
@@ -266,8 +249,3 @@ class Definitions:
                 )
             )
         return cls(filing=d.get("filing", {}), arcs=arcs)
-
-    @classmethod
-    def load(cls, path: str | Path) -> Definitions:
-        with open(path) as fh:
-            return cls.from_dict(json.load(fh))

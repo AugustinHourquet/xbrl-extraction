@@ -223,3 +223,6 @@ data/output/*.json
 
 # Log folder
 logs/*.jsonl
+
+# VSCode - Specific Project Settings
+.vscode

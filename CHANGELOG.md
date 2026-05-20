@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 
 ---
 
+## [3.0.0] — 2026-05
+
+### Changed
+- **Single combined output JSON per filing.** The five separate output
+  files (`.facts.json`, `.calc.json`, `.pres.json`, `.labs.json`,
+  `.defs.json`) are replaced by one `<stem>.json` file containing all
+  five sections under top-level keys `facts`, `calc`, `pres`, `labs`,
+  `defs`.
+- **`Document.load(path)`** now reads the combined JSON and populates
+  all four linkbase fields by default. Pass `linkbases=False` to load
+  facts only.
+- **`scripts/inspect_filings.py`** resolves filings by globbing
+  `*.json` instead of `*.facts.json`.
+- **Run log** `output_files` is now a single-element list
+  (`["aapl.json"]` rather than five filenames).
+
+### Breaking
+- **Removed `Document.load_all()`** — replaced by `Document.load()`
+  with `linkbases=True` (default). Callers must rename and drop the
+  `quiet` argument.
+- **Removed `Document.attach_calc()` / `attach_pres()` / `attach_labs()`
+  / `attach_defs()`** — individual attachment is no longer meaningful
+  now that all sections live in one file.
+- **Removed `Calculations.load()` / `Presentation.load()` /
+  `Labels.load()` / `Definitions.load()`** — these loaded standalone
+  files that no longer exist. Deserialise via `from_dict()` if needed.
+- **Output directory must be re-extracted.** Existing
+  `.facts.json` / `.calc.json` etc. files are not recognised as output
+  by the new CLI. Run `--force` to regenerate.
+
+---
+
 ## [2.1.0] — 2026-05
 
 ### Added
@@ -49,10 +81,8 @@ and this project adheres to [Semantic Versioning](https://semver.org).
 - Populated `handlers.py` — `Document` becomes a full consumption
   surface:
   - `Document.load()`, `Document.load_all()`, `from_dict()`,
-    `to_dict()` round-trip.
-  - `attach_calc()` / `attach_pres()` / `attach_labs()` /
-    `attach_defs()` for explicit attachment; `load_all()` auto-discovers
-    siblings.
+    `to_dict()` round-trip. *(Note: `load_all()` and `attach_*()` were
+    removed in v3.0.0 when the output merged to a single file.)*
   - `filter(**kwargs)` — chainable, returns a new pruned `Document`.
     Supports concept, period, unit, dimension, statement, and
     accounting-standard filters.

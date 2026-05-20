@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name            = "xbrl-extraction"
-version         = "2.1.0"
+version         = "3.0.0"
 description     = "Transform iXBRL filing zips into structured JSON."
 readme          = "README.md"
 requires-python = ">=3.10"

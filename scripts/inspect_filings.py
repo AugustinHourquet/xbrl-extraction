@@ -2,7 +2,7 @@
 scripts/inspect_filings.py — Inspect extracted filings from the command line.
 
 Resolves filings by company ID (e.g. "1860" → Apple) by globbing
-data/output/ for facts.json files matching `*_<id>_*.facts.json`. When
+data/output/ for combined JSON files matching `*_<id>_*.json`. When
 a company has filings across multiple years, the most recent is picked
 unless --year is given.
 
@@ -40,25 +40,25 @@ from xbrl_extraction import Document
 _PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 _DEFAULT_OUTPUT = _PACKAGE_ROOT / "data" / "output"
 
-# Filenames look like: rawdata_us_1860_1860_XBRL_2025-09-27.facts.json
+# Filenames look like: rawdata_us_1860_1860_XBRL_2025-09-27.json
 # Extract the ID (any digits between underscores) and the date suffix.
-_FACTS_RE = re.compile(
-    r"(?P<prefix>[^/\\]*?)_(?P<id1>\d+)_(?P<id2>\d+)_XBRL_(?P<date>\d{4}-\d{2}-\d{2})\.facts\.json$"
+_FILING_RE = re.compile(
+    r"(?P<prefix>[^/\\]*?)_(?P<id1>\d+)_(?P<id2>\d+)_XBRL_(?P<date>\d{4}-\d{2}-\d{2})\.json$"
 )
 
 
-def resolve_facts_path(
+def resolve_filing_path(
     company_id: str,
     year: str | None = None,
     output_dir: Path = _DEFAULT_OUTPUT,
 ) -> Path:
-    """Locate the facts.json for a given company ID.
+    """Locate the combined filing JSON for a given company ID.
 
     Matches files where either the first or second numeric segment
     in the filename equals `company_id`. When multiple match, returns
     the most recent by date suffix unless `year` is given.
 
-    Raises FileNotFoundError if no facts.json matches.
+    Raises FileNotFoundError if no match is found.
     """
     if not output_dir.is_dir():
         raise FileNotFoundError(
@@ -67,8 +67,8 @@ def resolve_facts_path(
         )
 
     matches: list[tuple[Path, str]] = []
-    for path in output_dir.glob("*.facts.json"):
-        m = _FACTS_RE.search(path.name)
+    for path in output_dir.glob("*.json"):
+        m = _FILING_RE.search(path.name)
         if not m:
             continue
         if company_id in (m.group("id1"), m.group("id2")):
@@ -78,7 +78,7 @@ def resolve_facts_path(
     if not matches:
         suffix = f" for year {year}" if year else ""
         raise FileNotFoundError(
-            f"No facts.json found for company ID {company_id!r}{suffix} "
+            f"No filing JSON found for company ID {company_id!r}{suffix} "
             f"in {output_dir}.\n"
             f"Available IDs: {sorted(_list_known_ids(output_dir))}"
         )
@@ -99,17 +99,17 @@ def resolve_facts_path(
 
 def _list_known_ids(output_dir: Path) -> set[str]:
     ids: set[str] = set()
-    for path in output_dir.glob("*.facts.json"):
-        m = _FACTS_RE.search(path.name)
+    for path in output_dir.glob("*.json"):
+        m = _FILING_RE.search(path.name)
         if m:
             ids.add(m.group("id1"))
     return ids
 
 
 def _load(args) -> Document:
-    """Resolve company ID → Document with linkbases auto-attached."""
-    facts_path = resolve_facts_path(args.file, year=args.year)
-    return Document.load_all(facts_path, quiet=True)
+    """Resolve company ID → Document with linkbases loaded."""
+    filing_path = resolve_filing_path(args.file, year=args.year)
+    return Document.load(filing_path)
 
 
 # ---------------------------------------------------------------------------
@@ -240,7 +240,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "--file",
             required=True,
             help="Company ID (e.g. 1860 for Apple). Matched against the "
-            "numeric segments of facts.json filenames.",
+            "numeric segments of filing JSON filenames.",
         )
         sp.add_argument(
             "--year",

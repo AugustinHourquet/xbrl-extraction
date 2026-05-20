@@ -29,30 +29,31 @@ def apple_output(tmp_path_factory):
     out = tmp_path_factory.mktemp("apple_out")
     result = extract(matches[0])
 
-    facts_path = out / "aapl.facts.json"
-    facts_path.write_text(json.dumps(result.document.to_dict()))
+    combined = {"facts": result.document.to_dict()}
     if result.calc:
-        (out / "aapl.calc.json").write_text(json.dumps(result.calc.to_dict()))
+        combined["calc"] = result.calc.to_dict()
     if result.presentation:
-        (out / "aapl.pres.json").write_text(json.dumps(result.presentation.to_dict()))
+        combined["pres"] = result.presentation.to_dict()
     if result.labels:
-        (out / "aapl.labs.json").write_text(json.dumps(result.labels.to_dict()))
+        combined["labs"] = result.labels.to_dict()
     if result.definitions:
-        (out / "aapl.defs.json").write_text(json.dumps(result.definitions.to_dict()))
+        combined["defs"] = result.definitions.to_dict()
 
-    return facts_path
+    filing_path = out / "aapl.json"
+    filing_path.write_text(json.dumps(combined))
+    return filing_path
 
 
 @pytest.fixture
 def apple_full(apple_output):
     """Document with all four linkbases attached."""
-    return Document.load_all(apple_output, quiet=True)
+    return Document.load(apple_output)
 
 
 @pytest.fixture
 def apple_facts_only(apple_output):
     """Document with only facts loaded."""
-    return Document.load(apple_output)
+    return Document.load(apple_output, linkbases=False)
 
 
 # ---------------------------------------------------------------------------
@@ -69,9 +70,9 @@ def test_load_facts_only(apple_facts_only):
 
 
 def test_roundtrip(apple_output):
-    """to_dict() of a loaded doc equals the source JSON's content."""
-    original = json.loads(Path(apple_output).read_text())
-    doc = Document.load(apple_output)
+    """to_dict() of a loaded doc equals the source JSON's facts section."""
+    original = json.loads(Path(apple_output).read_text())["facts"]
+    doc = Document.load(apple_output, linkbases=False)
     revived = doc.to_dict()
     assert revived["filing"] == original["filing"]
     assert len(revived["facts"]) == len(original["facts"])
@@ -79,32 +80,11 @@ def test_roundtrip(apple_output):
     assert revived["units"] == original["units"]
 
 
-def test_load_all_attaches_siblings(apple_full):
+def test_load_attaches_linkbases(apple_full):
     assert apple_full.calc is not None
     assert apple_full.pres is not None
     assert apple_full.labs is not None
     assert apple_full.defs is not None
-
-
-def test_load_all_quiet_no_warnings(apple_output, caplog):
-    Document.load_all(apple_output, quiet=True)
-    # Quiet means no WARNING records logged
-    assert all(r.levelname != "WARNING" for r in caplog.records)
-
-
-def test_load_all_warns_on_missing(apple_output, caplog, tmp_path):
-    """Move just the facts.json into a fresh dir; siblings missing → warns."""
-    import shutil
-
-    other = tmp_path / "only_facts"
-    other.mkdir()
-    shutil.copy(apple_output, other / "aapl.facts.json")
-    import logging
-
-    with caplog.at_level(logging.WARNING):
-        Document.load_all(other / "aapl.facts.json")
-    msgs = [r.message for r in caplog.records]
-    assert any("calc" in m for m in msgs)
 
 
 # ---------------------------------------------------------------------------

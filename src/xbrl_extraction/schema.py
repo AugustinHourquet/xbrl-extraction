@@ -2,9 +2,10 @@
 schema.py — Dataclasses describing the output JSON shape.
 
 A `Document` is the top-level container produced by `extractor.extract()`.
-It serializes to the JSON written under data/output/<basename>.facts.json.
+It serializes to the "facts" section of the combined filing JSON written
+under data/output/<basename>.json.
 
-The shape:
+The "facts" section shape:
 
     {
       "filing":  Filing,
@@ -160,11 +161,10 @@ class Document:
     Top-level container. Produced by `extractor.extract()` and consumed
     by `handlers.py`.
 
-    Facts, periods, and units are the v1 payload — what gets serialised
-    to `<basename>.facts.json`. The four `calc` / `pres` / `labs` /
-    `defs` fields are optional in-memory attachments populated by
-    `attach_*()` or `load_all()`. They are NOT included in `to_dict()`
-    output — each linkbase has its own JSON file on disk.
+    Facts, periods, and units are the core payload. The four `calc` /
+    `pres` / `labs` / `defs` fields hold the linkbases, populated by
+    `Document.load(path)` from the combined filing JSON. They are NOT
+    included in `to_dict()` — which serialises the facts section only.
 
     Filtering and operational methods live in `handlers.py` and are
     bound onto this class at import time. See that module's docstring.
@@ -185,11 +185,11 @@ class Document:
     # ── Serialisation ──────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        """Serialize to a JSON-compatible dict (facts.json shape only).
+        """Serialize the facts section to a JSON-compatible dict.
 
-        Attached linkbases are deliberately excluded — they have their
-        own files. Round-trip discipline: load(to_dict()) preserves the
-        facts payload.
+        Linkbases are deliberately excluded — the combined output file
+        is assembled by the CLI. Round-trip: Document.from_dict(to_dict())
+        preserves the facts payload.
         """
         return {
             "filing": asdict(self.filing),
@@ -201,8 +201,7 @@ class Document:
     @classmethod
     def from_dict(cls, d: dict) -> Document:
         """Inverse of `to_dict`. Reconstructs facts/periods/units from
-        the JSON shape. Attached linkbases default to None — use
-        `attach_*` or `load_all` to populate them."""
+        the facts-section JSON shape. Linkbases default to None."""
         filing = Filing(**d["filing"])
 
         periods: dict[str, Period] = {}
@@ -239,81 +238,30 @@ class Document:
         return cls(filing=filing, periods=periods, units=units, facts=facts)
 
     @classmethod
-    def load(cls, path) -> Document:
-        """Load a .facts.json file from disk. Returns a Document with
-        no linkbases attached — call `attach_*` or use `load_all`."""
+    def load(cls, path, *, linkbases: bool = True) -> Document:
+        """Load a combined filing JSON from disk.
+
+        With `linkbases=True` (default) all four linkbase sections are
+        attached when present. Pass `linkbases=False` to load facts only.
+        """
         import json as _json
         from pathlib import Path as _Path
 
+        from xbrl_extraction.linkbases import Calculations, Definitions, Labels, Presentation
+
         with open(_Path(path)) as fh:
-            return cls.from_dict(_json.load(fh))
+            data = _json.load(fh)
 
-    @classmethod
-    def load_all(cls, facts_path, quiet: bool = False) -> Document:
-        """Load `<basename>.facts.json` and auto-attach any sibling
-        `<basename>.calc.json` / `.pres.json` / `.labs.json` / `.defs.json`
-        files in the same directory.
+        doc = cls.from_dict(data["facts"])
 
-        Missing siblings log a warning unless `quiet=True`. Never errors
-        on missing siblings — only on a missing facts file or bad JSON.
-        """
-        import logging as _logging
-        from pathlib import Path as _Path
-
-        _logger = _logging.getLogger(__name__)
-
-        facts_path = _Path(facts_path)
-        doc = cls.load(facts_path)
-
-        # Derive `<basename>` by stripping `.facts` from the stem.
-        stem = facts_path.stem  # e.g. "aapl-2025.facts" → "aapl-2025.facts"
-        if stem.endswith(".facts"):
-            base = stem[: -len(".facts")]
-        else:
-            base = stem
-        parent = facts_path.parent
-
-        for kind, attach in (
-            ("calc", doc.attach_calc),
-            ("pres", doc.attach_pres),
-            ("labs", doc.attach_labs),
-            ("defs", doc.attach_defs),
-        ):
-            sibling = parent / f"{base}.{kind}.json"
-            if sibling.exists():
-                attach(sibling)
-            elif not quiet:
-                _logger.warning(
-                    "load_all: sibling %s not found; skipping %s.",
-                    sibling.name,
-                    kind,
-                )
+        if linkbases:
+            if "calc" in data:
+                doc.calc = Calculations.from_dict(data["calc"])
+            if "pres" in data:
+                doc.pres = Presentation.from_dict(data["pres"])
+            if "labs" in data:
+                doc.labs = Labels.from_dict(data["labs"])
+            if "defs" in data:
+                doc.defs = Definitions.from_dict(data["defs"])
 
         return doc
-
-    # ── Linkbase attachment ────────────────────────────────────────
-
-    def attach_calc(self, path) -> Document:
-        """Attach a .calc.json. Returns self for chaining."""
-        from xbrl_extraction.linkbases import Calculations
-
-        self.calc = Calculations.load(path)
-        return self
-
-    def attach_pres(self, path) -> Document:
-        from xbrl_extraction.linkbases import Presentation
-
-        self.pres = Presentation.load(path)
-        return self
-
-    def attach_labs(self, path) -> Document:
-        from xbrl_extraction.linkbases import Labels
-
-        self.labs = Labels.load(path)
-        return self
-
-    def attach_defs(self, path) -> Document:
-        from xbrl_extraction.linkbases import Definitions
-
-        self.defs = Definitions.load(path)
-        return self

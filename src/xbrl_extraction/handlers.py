@@ -50,8 +50,8 @@ def _require(doc: Document, attr: str, kind: str) -> Any:
     value = getattr(doc, attr)
     if value is None:
         raise RuntimeError(
-            f"{kind} not attached. Call doc.attach_{attr}(path) first, "
-            f"or use Document.load_all() for auto-discovery."
+            f"{kind} not attached. Load the filing with Document.load(path) "
+            f"(linkbases are included by default)."
         )
     return value
 

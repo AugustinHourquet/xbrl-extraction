@@ -13,15 +13,17 @@ Two modes:
 
 Output filenames are derived from the input zip basename:
   rawdata_us_1860_..._XBRL_2025-09-27.zip
-  → rawdata_us_1860_..._XBRL_2025-09-27.facts.json
+  → rawdata_us_1860_..._XBRL_2025-09-27.json
 
-Idempotency: by default, a zip is skipped when all five output JSONs
-exist. Pass --force to re-extract everything (e.g. after an extractor
-bug fix). Skipped files do NOT produce a run_log.jsonl record.
+The output JSON has the shape:
+  { "facts": {...}, "calc": {...}, "pres": {...}, "labs": {...}, "defs": {...} }
 
-By default the CLI emits five files per zip (facts + calc/pres/labs/defs).
-Pass --facts-only to emit just facts.json — useful when you only need
-the raw fact data and don't want to wait for linkbase parsing.
+Idempotency: by default, a zip is skipped when its output JSON already
+exists. Pass --force to re-extract. Skipped files do NOT produce a
+run_log.jsonl record.
+
+Pass --facts-only to omit the four linkbase sections from the output JSON.
+Useful when you only need the raw fact data.
 
 Each run appends one record per file processed (success or failure) to
 logs/run_log.jsonl.
@@ -54,27 +56,12 @@ _DEFAULT_OUTPUT_DIR = _PACKAGE_ROOT / "data" / "output"
 _DEFAULT_LOG_DIR = _PACKAGE_ROOT / "logs"
 
 
-def _output_paths_for(zip_path: Path, output_dir: Path) -> dict[str, Path]:
-    """Map output kind → path for one input zip.
+def _output_path_for(zip_path: Path, output_dir: Path) -> Path:
+    """Return the single combined output JSON path for one input zip.
 
-    Returns a dict keyed by short kind name ('facts', 'calc', 'pres',
-    'labs', 'defs'). All five paths share the basename derived from the
-    input zip stem.
-
-      data/input/foo.zip → {
-        'facts': data/output/foo.facts.json,
-        'calc':  data/output/foo.calc.json,
-        ...
-      }
+    data/input/foo.zip → data/output/foo.json
     """
-    stem = zip_path.stem
-    return {
-        "facts": output_dir / f"{stem}.facts.json",
-        "calc": output_dir / f"{stem}.calc.json",
-        "pres": output_dir / f"{stem}.pres.json",
-        "labs": output_dir / f"{stem}.labs.json",
-        "defs": output_dir / f"{stem}.defs.json",
-    }
+    return output_dir / f"{zip_path.stem}.json"
 
 
 # ---------------------------------------------------------------------------
@@ -90,32 +77,24 @@ def _process_one(
     facts_only: bool = False,
 ) -> bool:
     """
-    Extract one zip and write the output JSON(s). Returns True on success OR skip.
+    Extract one zip and write a single combined output JSON. Returns True on success OR skip.
 
-    Idempotency:
-      - Default mode: skip when ALL five output files already exist.
-      - facts_only mode: skip when just .facts.json exists.
-    Missing any → regenerate (ensures consistent state). Pass
+    Idempotency: skip when the output JSON already exists. Pass
     force=True to re-extract regardless.
 
-    facts_only mode still parses everything (extraction is single-pass),
-    it just doesn't write the four linkbase JSONs. The runtime saving
-    is modest; the main use case is keeping output/ uncluttered when
-    you only care about the raw fact data.
+    facts_only omits the four linkbase sections from the output JSON.
+    Extraction is still single-pass; the saving is in output size, not
+    parse time.
 
     All exceptions are caught and turned into a run-log record; the
     caller decides whether to keep going with the next file.
     """
-    paths = _output_paths_for(zip_path, output_dir)
+    out_path = _output_path_for(zip_path, output_dir)
 
-    # Idempotency check — different file set depending on facts_only
-    required = [paths["facts"]] if facts_only else list(paths.values())
-    if not force and all(p.exists() for p in required):
-        suffix = " (facts only)" if facts_only else ""
+    if not force and out_path.exists():
         logger.info(
-            "⊘ %s → already extracted%s (use --force to re-run)",
+            "⊘ %s → already extracted (use --force to re-run)",
             zip_path.name,
-            suffix,
         )
         return True
 
@@ -142,44 +121,30 @@ def _process_one(
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Always emit facts.json
-    with open(paths["facts"], "w") as fh:
-        json.dump(result.document.to_dict(), fh, indent=2)
-
-    # Linkbase outputs — written only when not facts_only AND the
-    # extractor produced them.
+    combined: dict = {"facts": result.document.to_dict()}
     counts = {
         "calc_edges": 0,
         "pres_edges": 0,
         "labs_count": 0,
         "defs_edges": 0,
     }
-    output_files = [paths["facts"].name]
 
     if not facts_only:
         if result.calc is not None:
-            with open(paths["calc"], "w") as fh:
-                json.dump(result.calc.to_dict(), fh, indent=2)
+            combined["calc"] = result.calc.to_dict()
             counts["calc_edges"] = len(result.calc.arcs)
-            output_files.append(paths["calc"].name)
-
         if result.presentation is not None:
-            with open(paths["pres"], "w") as fh:
-                json.dump(result.presentation.to_dict(), fh, indent=2)
+            combined["pres"] = result.presentation.to_dict()
             counts["pres_edges"] = len(result.presentation.arcs)
-            output_files.append(paths["pres"].name)
-
         if result.labels is not None:
-            with open(paths["labs"], "w") as fh:
-                json.dump(result.labels.to_dict(), fh, indent=2)
+            combined["labs"] = result.labels.to_dict()
             counts["labs_count"] = len(result.labels.entries)
-            output_files.append(paths["labs"].name)
-
         if result.definitions is not None:
-            with open(paths["defs"], "w") as fh:
-                json.dump(result.definitions.to_dict(), fh, indent=2)
+            combined["defs"] = result.definitions.to_dict()
             counts["defs_edges"] = len(result.definitions.arcs)
-            output_files.append(paths["defs"].name)
+
+    with open(out_path, "w") as fh:
+        json.dump(combined, fh, indent=2)
 
     elapsed = time.monotonic() - started
     if facts_only:
@@ -207,7 +172,7 @@ def _process_one(
         status="success",
         elapsed=elapsed,
         facts_total=len(result.document.facts),
-        output_files=output_files,
+        output_files=[out_path.name],
         **counts,
     )
     return True
@@ -261,7 +226,7 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=_DEFAULT_OUTPUT_DIR,
-        help=f"Where to write .facts.json files (default: {_DEFAULT_OUTPUT_DIR})",
+        help=f"Where to write output JSON files (default: {_DEFAULT_OUTPUT_DIR})",
     )
     parser.add_argument(
         "--log-dir",
@@ -279,9 +244,8 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--facts-only",
         action="store_true",
-        help="Emit only .facts.json; skip writing the four linkbase JSONs "
-        "(.calc / .pres / .labs / .defs). Idempotency checks against "
-        "facts.json alone in this mode.",
+        help="Omit the four linkbase sections (calc/pres/labs/defs) from "
+        "the output JSON. Useful when you only need the raw fact data.",
     )
     parser.add_argument(
         "-v",
