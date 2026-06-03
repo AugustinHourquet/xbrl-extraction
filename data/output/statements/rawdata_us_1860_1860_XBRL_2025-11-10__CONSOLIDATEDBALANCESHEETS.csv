@@ -1,0 +1,39 @@
+concept,display_label,sign,scale,2025-09-27,2024-09-28
+us-gaap:StatementOfFinancialPositionAbstract,Statement of Financial Position [Abstract],,6,,
+us-gaap:AssetsAbstract,  ASSETS:,,6,,
+us-gaap:AssetsCurrentAbstract,    Current assets:,,6,,
+us-gaap:CashAndCashEquivalentsAtCarryingValue,      Cash and cash equivalents,+,6,35934.0,29943.0
+us-gaap:MarketableSecuritiesCurrent,      Marketable securities,+,6,18763.0,35228.0
+us-gaap:AccountsReceivableNetCurrent,"      Accounts receivable, net",+,6,39777.0,33410.0
+us-gaap:NontradeReceivablesCurrent,      Vendor non-trade receivables,+,6,33180.0,32833.0
+us-gaap:InventoryNet,      Inventories,+,6,5718.0,7286.0
+us-gaap:OtherAssetsCurrent,      Other current assets,+,6,14585.0,14287.0
+us-gaap:AssetsCurrent,      Total current assets,+,6,147957.0,152987.0
+us-gaap:AssetsNoncurrentAbstract,    Non-current assets:,,6,,
+us-gaap:MarketableSecuritiesNoncurrent,      Marketable securities,+,6,77723.0,91479.0
+us-gaap:PropertyPlantAndEquipmentNet,"      Property, plant and equipment, net",+,6,49834.0,45680.0
+us-gaap:OtherAssetsNoncurrent,      Other non-current assets,+,6,83727.0,74834.0
+us-gaap:AssetsNoncurrent,      Total non-current assets,+,6,211284.0,211993.0
+us-gaap:Assets,    Total assets,,6,359241.0,364980.0
+us-gaap:LiabilitiesAndStockholdersEquityAbstract,  LIABILITIES AND SHAREHOLDERS’ EQUITY:,,6,,
+us-gaap:LiabilitiesCurrentAbstract,    Current liabilities:,,6,,
+us-gaap:AccountsPayableCurrent,      Accounts payable,+,6,69860.0,68960.0
+us-gaap:OtherLiabilitiesCurrent,      Other current liabilities,+,6,66387.0,78304.0
+us-gaap:ContractWithCustomerLiabilityCurrent,      Deferred revenue,+,6,9055.0,8249.0
+us-gaap:CommercialPaper,      Commercial paper,+,6,7979.0,9967.0
+us-gaap:LongTermDebtCurrent,      Term debt,+,6,12350.0,10912.0
+us-gaap:LiabilitiesCurrent,      Total current liabilities,+,6,165631.0,176392.0
+us-gaap:LiabilitiesNoncurrentAbstract,    Non-current liabilities:,,6,,
+us-gaap:LongTermDebtNoncurrent,      Term debt,+,6,78328.0,85750.0
+us-gaap:OtherLiabilitiesNoncurrent,      Other non-current liabilities,+,6,41549.0,45888.0
+us-gaap:LiabilitiesNoncurrent,      Total non-current liabilities,+,6,119877.0,131638.0
+us-gaap:Liabilities,    Total liabilities,+,6,285508.0,308030.0
+us-gaap:CommitmentsAndContingencies,    Commitments and contingencies,+,6,,
+us-gaap:CommonStockSharesOutstanding,"    Common stock, shares outstanding (in shares)",,6,14773260.0,15116786.0
+us-gaap:CommonStockSharesIssued,"    Common stock, shares issued (in shares)",,6,14773260.0,15116786.0
+us-gaap:StockholdersEquityAbstract,    Shareholders’ equity:,,6,,
+us-gaap:CommonStocksIncludingAdditionalPaidInCapital,"      Common stock and additional paid-in capital, $0.00001 par value: 50,400,000 shares authorized; 14,773,260 and 15,116,786 shares issued and outstanding, respectively",+,6,93568.0,83276.0
+us-gaap:RetainedEarningsAccumulatedDeficit,      Accumulated deficit,+,6,-14264.0,-19154.0
+us-gaap:AccumulatedOtherComprehensiveIncomeLossNetOfTax,      Accumulated other comprehensive loss,+,6,-5571.0,-7172.0
+us-gaap:StockholdersEquity,      Total shareholders’ equity,+,6,73733.0,56950.0
+us-gaap:LiabilitiesAndStockholdersEquity,    Total liabilities and shareholders’ equity,,6,359241.0,364980.0

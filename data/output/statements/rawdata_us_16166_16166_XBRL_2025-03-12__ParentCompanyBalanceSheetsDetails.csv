@@ -1,0 +1,19 @@
+concept,display_label,sign,scale,2024-12-31,2023-12-31
+srt:CondensedFinancialInformationOfParentCompanyOnlyDisclosureAbstract,Condensed Financial Information Disclosure [Abstract],,6,,
+us-gaap:StatementOfFinancialPositionAbstract,  Balance sheets,,6,,
+us-gaap:AssetsAbstract,    Assets,,6,,
+us-gaap:CashAndDueFromBanks,      Cash and due from banks,+,6,23372.0,29066.0
+jpm:DepositsWithBankingSubsidiaries,      Deposits with banking subsidiaries,+,6,9762.0,9804.0
+jpm:TradingAssets,      Trading assets,+,6,637784.0,540607.0
+jpm:AdvancesToSubsidiaries,"      Advances to, and receivables from, subsidiaries",+,6,142.0,152.0
+jpm:InvestmentsInSubsidiaries,      Investments (at equity) in subsidiaries and affiliates,+,6,603044.0,568472.0
+us-gaap:OtherAssets,      Other assets,+,6,178197.0,159308.0
+us-gaap:Assets,      Total assets,,6,4002814.0,3875393.0
+us-gaap:LiabilitiesAndStockholdersEquityAbstract,    Liabilities and stockholders’ equity,,6,,
+jpm:BorrowingsFromSubsidiaries,"      Borrowings from, and payables to, subsidiaries and affiliates",+,6,72881.0,22777.0
+us-gaap:ShortTermBorrowings,      Short-term borrowings,+,6,52893.0,44712.0
+us-gaap:OtherLiabilities,      Other liabilities,+,6,10.0,6.0
+us-gaap:LongTermDebt,      Long-term debt,+,6,239626.0,228542.0
+us-gaap:Liabilities,      Total liabilities,,6,3658056.0,3547515.0
+us-gaap:StockholdersEquity,      Total stockholders’ equity,,6,344758.0,327878.0
+us-gaap:LiabilitiesAndStockholdersEquity,      Total liabilities and stockholders’ equity,,6,4002814.0,3875393.0
